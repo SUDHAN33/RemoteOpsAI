@@ -35,6 +35,60 @@ Instead of manually switching between SSH terminals, SFTP clients, and log files
 - Download files from remote servers.
 - Create remote directories.
 
+## RemoteOpsAI FTP / FTPS Add-on
+
+**This add‑on introduces a dedicated FTP manager and a set of MCP tools for FTP/FTPS operations.** It works alongside the existing Paramiko‑based SSH/SFTP implementation without modifying it.
+
+### Installation
+
+1. Copy `ftp_manager.py` into the root of RemoteOpsAI, beside `server.py`.
+2. Open `server_ftp_tools.py` and merge its import block and MCP tool definitions into your existing `server.py`. **Do not overwrite `server.py`.**
+3. Python's `ftplib` is part of the standard library; no extra package is required.
+4. Restart the MCP server / Copilot connection and verify the newly registered tools.
+
+### Protocols
+
+- **FTP** – plaintext, typically port 21. Credentials and file contents are not encrypted.
+- **FTPS** – explicit FTP over TLS (also usually port 21). Certificate verification is enabled and the data channel is encrypted (`PROT P`).
+- Implicit FTPS (often port 990) is **not** implemented in this add‑on.
+- **SFTP** remains handled by the existing Paramiko SFTP manager.
+
+### Tools
+
+- `connect_ftp_server`
+- `get_ftp_connection_status`
+- `list_ftp_directory`
+- `change_ftp_directory`
+- `upload_ftp_file`
+- `download_ftp_file`
+- `create_ftp_directory`
+- `delete_ftp_file`
+- `rename_ftp_file`
+- `disconnect_ftp_server`
+
+### Example prompts
+
+*Connect:* `Connect to ftp.example.com using profile vendor-ftp, username myuser, password I provide, port 21, protocol FTP.`
+
+*FTPS:* `Connect to ftp.example.com using explicit FTPS, profile vendor‑ftps, port 21.`
+
+*List:* `List /incoming using FTP profile vendor-ftp.`
+
+*Upload:* `Upload C:\\Transfers\\report.csv to /incoming/report.csv using vendor-ftp.`
+
+*Download:* `Download /outgoing/result.csv to C:\\Users\\me\\Downloads\\result.csv using vendor-ftp.`
+
+*Disconnect:* `Disconnect FTP profile vendor-ftp.`
+
+### Security and operational notes
+
+- Prefer **FTPS** over plain FTP. Plain FTP sends credentials and data without encryption.
+- FTPS validates the server certificate using the OS trust store. Do not disable validation; install the correct CA certificate instead.
+- Passive mode is enabled by default. If listings or transfers hang, check the server's passive port range and firewall/NAT rules.
+- Sessions and passwords are held in memory and disappear when the MCP process exits. Use unique profile names.
+- The module uses process‑global session state and is intended for a single local MCP user, not a shared multi‑user HTTP deployment.
+- `delete_ftp_file` is destructive; verify the target path before invoking it.
+
 ### 4. Application and Infrastructure Troubleshooting
 
 The project is designed to support additional diagnostic modules, including:
