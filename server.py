@@ -17,6 +17,15 @@ from sftp_manager import (
     create_remote_directory
 )
 
+from ftp_manager import (
+    connect as ftp_connect, status as ftp_status,
+    list_directory as ftp_list_directory,
+    change_directory as ftp_change_directory,
+    upload_file as ftp_upload_file, download_file as ftp_download_file,
+    create_directory as ftp_create_directory, delete_file as ftp_delete_file,
+    rename_file as ftp_rename_file, disconnect as ftp_disconnect,
+)
+
 from linux_system_manager import (
     get_cpu_usage,
     get_process_list,
@@ -576,6 +585,58 @@ def verify_active_host_connection() -> str:
     finally:
         if client:
             client.close()
+
+@mcp.tool()
+def connect_ftp_server(profile_name: str, hostname: str, username: str, password: str,
+                       port: int = 21, protocol: str = "FTP", timeout: int = 20,
+                       passive: bool = True) -> str:
+    """Connect using FTP or explicit FTPS. FTPS verifies server certificates."""
+    return ftp_connect(profile_name, hostname, username, password, port, protocol, timeout, passive)
+
+@mcp.tool()
+def get_ftp_connection_status(profile_name: str) -> str:
+    """Check an FTP profile and show its remote working directory."""
+    return ftp_status(profile_name)
+
+@mcp.tool()
+def list_ftp_directory(profile_name: str, remote_path: str = ".") -> str:
+    """List files and directories on an FTP server."""
+    return ftp_list_directory(profile_name, remote_path)
+
+@mcp.tool()
+def change_ftp_directory(profile_name: str, remote_path: str) -> str:
+    """Change the FTP session working directory."""
+    return ftp_change_directory(profile_name, remote_path)
+
+@mcp.tool()
+def upload_ftp_file(profile_name: str, local_path: str, remote_path: str) -> str:
+    """Upload a local file to an FTP server."""
+    return ftp_upload_file(profile_name, local_path, remote_path)
+
+@mcp.tool()
+def download_ftp_file(profile_name: str, remote_path: str, local_path: str) -> str:
+    """Download an FTP file to the local machine."""
+    return ftp_download_file(profile_name, remote_path, local_path)
+
+@mcp.tool()
+def create_ftp_directory(profile_name: str, remote_path: str) -> str:
+    """Create a directory on an FTP server."""
+    return ftp_create_directory(profile_name, remote_path)
+
+@mcp.tool()
+def delete_ftp_file(profile_name: str, remote_path: str) -> str:
+    """Delete a remote FTP file. Confirm the target before calling."""
+    return ftp_delete_file(profile_name, remote_path)
+
+@mcp.tool()
+def rename_ftp_file(profile_name: str, source_path: str, destination_path: str) -> str:
+    """Rename or move a remote FTP file."""
+    return ftp_rename_file(profile_name, source_path, destination_path)
+
+@mcp.tool()
+def disconnect_ftp_server(profile_name: str) -> str:
+    """Disconnect an FTP profile and clear its in-memory session."""
+    return ftp_disconnect(profile_name)
 
 
 if __name__ == "__main__":
