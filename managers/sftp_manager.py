@@ -4,7 +4,7 @@ import posixpath
 
 from pathlib import Path, PurePosixPath
 
-from ssh_manager import create_ssh_client
+from .ssh_manager import create_ssh_client
 
 from config import (
     REMOTE_BASE_DIR,

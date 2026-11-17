@@ -1,7 +1,7 @@
 
 from mcp.server import MCPServer
 
-from ssh_manager import execute_command, create_ssh_client
+from managers.ssh_manager import execute_command, create_ssh_client
 
 from config import (
     REMOTE_HOST,
@@ -9,7 +9,7 @@ from config import (
     REMOTE_USERNAME
 )
 
-from sftp_manager import (
+from managers.sftp_manager import (
     list_remote_files,
     read_remote_file,
     upload_local_file,
@@ -17,7 +17,7 @@ from sftp_manager import (
     create_remote_directory
 )
 
-from ftp_manager import (
+from managers.ftp_manager import (
     connect as ftp_connect, status as ftp_status,
     list_directory as ftp_list_directory,
     change_directory as ftp_change_directory,
@@ -26,18 +26,19 @@ from ftp_manager import (
     rename_file as ftp_rename_file, disconnect as ftp_disconnect,
 )
 
-from linux_system_manager import (
+from managers.linux_system_manager import (
     get_cpu_usage,
     get_process_list,
     get_java_processes,
     get_listening_ports
 )
 
-from remoteops import host_manager as hosts
-from remoteops import linux_manager as linux
-from remoteops import java_manager as java
-from remoteops import database_manager as db
-from remoteops import certificate_manager as cert
+from managers import host_manager as hosts
+from managers import linux_manager as linux
+from managers import java_manager as java
+from managers import database_manager as db
+from managers import certificate_manager as cert
+from managers import docker_manager as docker
 
 # Initialize MCP server
 mcp = MCPServer("RemoteOpsAI")
@@ -244,9 +245,6 @@ def remote_listening_ports() -> str:
     """List listening network ports on the remote server."""
     return get_listening_ports()
 
-
-
-from remoteops import host_manager as hosts
 
 
 @mcp.tool()
@@ -637,6 +635,183 @@ def rename_ftp_file(profile_name: str, source_path: str, destination_path: str) 
 def disconnect_ftp_server(profile_name: str) -> str:
     """Disconnect an FTP profile and clear its in-memory session."""
     return ftp_disconnect(profile_name)
+
+
+# ==========================
+# DOCKER TOOLS
+# target="remote" (default): Docker on the active SSH host.
+# target="local": Docker on the machine running this MCP server.
+# ==========================
+
+@mcp.tool()
+def list_docker_containers(all_containers: bool = True, name_filter: str = "",
+                           target: str = "remote") -> str:
+    """List running and stopped Docker containers. target: 'remote' (active SSH host) or 'local'."""
+    return docker.list_containers(all_containers, name_filter, target)
+
+
+@mcp.tool()
+def inspect_docker_container(container: str, target: str = "remote") -> str:
+    """Summarize a container's configuration (state, ports, mounts, networks, env with secrets masked)."""
+    return docker.inspect_container(container, target)
+
+
+@mcp.tool()
+def start_docker_container(container: str, target: str = "remote") -> str:
+    """Start a stopped Docker container."""
+    return docker.start_container(container, target)
+
+
+@mcp.tool()
+def stop_docker_container(container: str, timeout_seconds: int = 10, target: str = "remote") -> str:
+    """Stop a running Docker container."""
+    return docker.stop_container(container, timeout_seconds, target)
+
+
+@mcp.tool()
+def restart_docker_container(container: str, timeout_seconds: int = 10, target: str = "remote") -> str:
+    """Restart a Docker container."""
+    return docker.restart_container(container, timeout_seconds, target)
+
+
+@mcp.tool()
+def remove_docker_container(container: str, force: bool = False, remove_volumes: bool = False,
+                            confirm: bool = False, target: str = "remote") -> str:
+    """Remove a container. Destructive: does nothing unless confirm=True."""
+    return docker.remove_container(container, force, remove_volumes, confirm, target)
+
+
+@mcp.tool()
+def get_docker_container_stats(container: str = "", target: str = "remote") -> str:
+    """Show a CPU, memory and network snapshot for one container, or all running containers."""
+    return docker.get_container_stats(container, target)
+
+
+@mcp.tool()
+def list_docker_images(name_filter: str = "", target: str = "remote") -> str:
+    """List Docker images, optionally filtered by repository[:tag]."""
+    return docker.list_images(name_filter, target)
+
+
+@mcp.tool()
+def inspect_docker_image(image: str, target: str = "remote") -> str:
+    """Show image metadata (layers, config, env, entrypoint)."""
+    return docker.inspect_image(image, target)
+
+
+@mcp.tool()
+def pull_docker_image(image: str, target: str = "remote") -> str:
+    """Pull an image from a registry."""
+    return docker.pull_image(image, target)
+
+
+@mcp.tool()
+def remove_docker_image(image: str, force: bool = False, confirm: bool = False,
+                        target: str = "remote") -> str:
+    """Remove an image. Destructive: does nothing unless confirm=True."""
+    return docker.remove_image(image, force, confirm, target)
+
+
+@mcp.tool()
+def build_docker_image(context_path: str, tag: str, dockerfile: str = "", no_cache: bool = False,
+                       target: str = "remote") -> str:
+    """Build an image from a Dockerfile. context_path is an absolute path on the chosen target
+    (e.g. C:\\src\\app locally, /srv/app remotely); dockerfile defaults to <context>/Dockerfile."""
+    return docker.build_image(context_path, tag, dockerfile, no_cache, target)
+
+
+@mcp.tool()
+def tag_docker_image(source_image: str, target_tag: str, target: str = "remote") -> str:
+    """Add a new tag to an existing image."""
+    return docker.tag_image(source_image, target_tag, target)
+
+
+@mcp.tool()
+def get_docker_logs(container: str, tail: int = 100, since: str = "", timestamps: bool = False,
+                    target: str = "remote") -> str:
+    """Get container logs. since accepts durations like 30m or a timestamp."""
+    return docker.get_logs(container, tail, since, timestamps, target)
+
+
+@mcp.tool()
+def execute_docker_command(container: str, command: str, user: str = "", workdir: str = "",
+                           timeout_seconds: int = 60, target: str = "remote") -> str:
+    """Run a shell command inside a running container (sh -c). workdir is a path inside the container."""
+    return docker.execute_command(container, command, user, workdir, timeout_seconds, target)
+
+
+@mcp.tool()
+def get_docker_processes(container: str, ps_options: str = "", target: str = "remote") -> str:
+    """List processes running inside a container (docker top)."""
+    return docker.get_processes(container, ps_options, target)
+
+
+@mcp.tool()
+def get_docker_inspect(container: str, target: str = "remote") -> str:
+    """Get the full raw `docker inspect` JSON for a container (env secrets masked)."""
+    return docker.get_inspect(container, target)
+
+
+@mcp.tool()
+def get_docker_networks(name: str = "", target: str = "remote") -> str:
+    """List Docker networks, or inspect one network when name is given."""
+    return docker.get_networks(name, target)
+
+
+@mcp.tool()
+def get_docker_volumes(name: str = "", target: str = "remote") -> str:
+    """List Docker volumes, or inspect one volume when name is given."""
+    return docker.get_volumes(name, target)
+
+
+@mcp.tool()
+def list_docker_compose_projects(target: str = "remote") -> str:
+    """List Docker Compose projects (running and stopped)."""
+    return docker.list_compose_projects(target)
+
+
+@mcp.tool()
+def get_docker_compose_status(project_dir: str = "", project_name: str = "", service: str = "",
+                              target: str = "remote") -> str:
+    """Show service status for a Compose project. Give project_dir (absolute path on the target) and/or project_name."""
+    return docker.get_compose_status(project_dir, project_name, service, target)
+
+
+@mcp.tool()
+def start_docker_compose_services(project_dir: str = "", project_name: str = "", services: str = "",
+                                  target: str = "remote") -> str:
+    """Start (docker compose up -d) all or the listed services (space/comma separated)."""
+    return docker.start_compose_services(project_dir, project_name, services, target)
+
+
+@mcp.tool()
+def stop_docker_compose_services(project_dir: str = "", project_name: str = "", services: str = "",
+                                 target: str = "remote") -> str:
+    """Stop all or the listed Compose services without removing them."""
+    return docker.stop_compose_services(project_dir, project_name, services, target)
+
+
+@mcp.tool()
+def restart_docker_compose_service(service: str, project_dir: str = "", project_name: str = "",
+                                   target: str = "remote") -> str:
+    """Restart a single Compose service."""
+    return docker.restart_compose_service(service, project_dir, project_name, target)
+
+
+@mcp.tool()
+def get_docker_compose_logs(project_dir: str = "", project_name: str = "", service: str = "",
+                            tail: int = 100, since: str = "", target: str = "remote") -> str:
+    """Get logs for a Compose project or specific service(s)."""
+    return docker.get_compose_logs(project_dir, project_name, service, tail, since, target)
+
+
+@mcp.tool()
+def deploy_docker_compose(project_dir: str, compose_content: str = "", compose_file: str = "",
+                          pull: bool = True, target: str = "remote") -> str:
+    """Deploy a Compose project. If compose_content is given it replaces the project's compose file
+    after validation (old file kept as .bak.<timestamp>); then pulls images and runs up -d --remove-orphans.
+    Invalid configurations are never deployed."""
+    return docker.deploy_compose(project_dir, compose_content, compose_file, pull, target)
 
 
 if __name__ == "__main__":

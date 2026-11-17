@@ -1,5 +1,5 @@
 
-from ssh_manager import execute_command
+from .ssh_manager import execute_command
 
 
 def get_cpu_usage():

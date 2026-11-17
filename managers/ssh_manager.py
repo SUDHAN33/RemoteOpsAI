@@ -6,7 +6,7 @@ from config import (
     REMOTE_USERNAME
 )
 
-from remoteops.host_manager import connect_active_host
+from .host_manager import connect_active_host
 
 def create_ssh_client():
     return connect_active_host()

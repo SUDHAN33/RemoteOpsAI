@@ -41,7 +41,7 @@ Instead of manually switching between SSH terminals, SFTP clients, and log files
 
 ### Installation
 
-1. Copy `ftp_manager.py` into the root of RemoteOpsAI, beside `server.py`.
+1. Place `ftp_manager.py` in the `managers/` folder (it is already there in this repository).
 2. Open `server_ftp_tools.py` and merge its import block and MCP tool definitions into your existing `server.py`. **Do not overwrite `server.py`.**
 3. Python's `ftplib` is part of the standard library; no extra package is required.
 4. Restart the MCP server / Copilot connection and verify the newly registered tools.
@@ -89,7 +89,47 @@ Instead of manually switching between SSH terminals, SFTP clients, and log files
 - The module uses process‑global session state and is intended for a single local MCP user, not a shared multi‑user HTTP deployment.
 - `delete_ftp_file` is destructive; verify the target path before invoking it.
 
-### 4. Application and Infrastructure Troubleshooting
+### 4. Docker and Docker Compose Management
+
+Docker tools can manage Docker in two places, chosen per call with the optional `target` parameter:
+
+- `target="remote"` (default): the Docker CLI over SSH on the **active remote host** (the same host used by the Linux tools).
+- `target="local"`: the Docker CLI on the **machine running RemoteOpsAI** (e.g. Docker Desktop on Windows). No SSH connection or active host is needed. Commands run directly without a shell.
+
+If you don't mention "local", Copilot uses the remote host. Ask for the local engine explicitly, e.g. *"List my **local** Docker containers"*.
+
+**Requirements on the remote host:** Docker Engine installed and the SSH user able to run `docker` (member of the `docker` group). If `sudo` is required instead, add `"docker_command": "sudo -n docker"` to that host's entry in `data/hosts.json` (password-less sudo for docker is needed). Compose requires the Docker Compose v2 plugin (`docker compose`).
+
+**Requirements for local Docker:** Docker Desktop (Windows/macOS) or Docker Engine (Linux) running, with `docker` on `PATH` for the process that starts the MCP server. For local tools, `context_path` and `project_dir` are local absolute paths (e.g. `C:\src\orders`); `workdir` is always a path inside the container (e.g. `/app`).
+
+| Group | MCP tools |
+|---|---|
+| Container management | `list_docker_containers`, `inspect_docker_container`, `start_docker_container`, `stop_docker_container`, `restart_docker_container`, `remove_docker_container`, `get_docker_container_stats` |
+| Image management | `list_docker_images`, `inspect_docker_image`, `pull_docker_image`, `remove_docker_image`, `build_docker_image`, `tag_docker_image` |
+| Container debugging | `get_docker_logs`, `execute_docker_command`, `get_docker_processes`, `get_docker_inspect`, `get_docker_networks`, `get_docker_volumes` |
+| Docker Compose | `list_docker_compose_projects`, `get_docker_compose_status`, `start_docker_compose_services`, `stop_docker_compose_services`, `restart_docker_compose_service`, `get_docker_compose_logs`, `deploy_docker_compose` |
+
+Every tool accepts `target`. `inspect_docker_container` returns a readable summary, while `get_docker_inspect` returns the full raw JSON; both mask environment variables whose names look sensitive (password, secret, token, key). `get_docker_networks` and `get_docker_volumes` list everything, or inspect one item when `name` is given.
+
+**Compose projects** are identified by an absolute `project_dir` on the chosen target and/or a `project_name` (as shown by `list_docker_compose_projects`). `deploy_docker_compose` can optionally write new `compose_content`. It replaces the file Compose would normally load (`compose.yaml`, `compose.yml`, `docker-compose.yaml` or `docker-compose.yml`, unless `compose_file` is given). The new content is staged next to the current file and validated with `docker compose config -q`, together with any override file that is present. Only then is it installed; the previous file is kept as `<file>.bak.<timestamp>`. The deploy then runs `pull` (unless `pull=False`) and `up -d --remove-orphans`. Invalid configurations are never deployed.
+
+**Safety notes**
+- Container/image names, service names, users and paths are validated and shell-quoted before use.
+- `remove_docker_container` and `remove_docker_image` do nothing unless `confirm=True` is passed.
+- `execute_docker_command` runs arbitrary commands inside the container with the privileges of the chosen container user; review commands before approving them.
+- Output is truncated to 60,000 characters per call.
+
+**Example prompts**
+- `List all Docker containers on the active host and show stats for the running ones.`
+- `Show the last 100 log lines of the orders-api container from the past 30 minutes.`
+- `Run psql -U app -c "\dt" inside the postgres container.`
+- `Build /srv/orders as orders-api:1.4, tag it as orders-api:latest, then restart the api service in /opt/orders.`
+- `Deploy this updated docker-compose.yml to /opt/orders and show the service status.`
+- `List my local Docker containers and show stats for the running ones.`
+- `Build C:\src\orders locally as orders-api:dev and show the image details.`
+- `Start the local compose project in C:\dev\shop and show the web service logs.`
+
+### 5. Application and Infrastructure Troubleshooting
 
 The project is designed to support additional diagnostic modules, including:
 
@@ -689,30 +729,32 @@ The repository may contain the following modules as the project evolves:
 RemoteOpsAI/
 │
 ├── server.py
-├── ssh_manager.py
-├── sftp_manager.py
 ├── config.py
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
 ├── README.md
 │
-├── remoteops/
+├── managers/                     # all *_manager.py modules (Python package)
 │   ├── host_manager.py
+│   ├── ssh_manager.py
+│   ├── sftp_manager.py
+│   ├── ftp_manager.py
+│   ├── linux_system_manager.py
 │   ├── linux_manager.py
 │   ├── java_manager.py
+│   ├── java_application_manager.py
 │   ├── database_manager.py
-│   └── certificate_manager.py
-│
-├── scripts/
-│   └──
+│   ├── legacy_database_manager.py
+│   ├── certificate_manager.py
+│   └── docker_manager.py
 │
 ├── uploads/
 ├── downloads/
 └── .venv/
 ```
 
-The modules shown under `remoteops/` represent the intended modular architecture; include only files that are actually present in your repository.
+All manager modules live in the `managers/` package; import them as `from managers import <name>` (or `from managers.<name> import ...`). `config.py` stays at the project root and is imported by the managers, so start the server as `python server.py` (as configured in VS Code).
 
 ---
 
