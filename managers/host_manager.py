@@ -194,11 +194,19 @@ def connect_to_host(name, hostname, username, password,
 
 
 def connect_active_host():
+    return connect_host()
 
-    profile = get_active_profile()
 
-    if not profile:
-        raise RuntimeError("No active remote host selected.")
+def connect_host(profile_name: str | None = None):
+    """Connect to a cached profile without changing the active host."""
+    if profile_name is None:
+        profile = get_active_profile()
+    else:
+        name = validate_host_name(profile_name)
+        profile = _load().get(name)
+        if not profile:
+            raise RuntimeError(f"Host profile '{name}' does not exist.")
+        profile = dict(profile, profile_name=name)
 
     name = profile["profile_name"]
     password = _SESSION_PASSWORDS.get(name)

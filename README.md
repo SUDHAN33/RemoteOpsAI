@@ -144,6 +144,124 @@ The project is designed to support additional diagnostic modules, including:
 
 **Note:** Availability of these capabilities depends on which modules and tools have been integrated into your current version of the repository. The planned modules are not necessarily exposed as MCP tools yet.
 
+### 6. Java Keystore Certificate Inspection
+
+`inspect_remote_keystore` uses the active SSH host's `keytool -list -v` to read
+certificate subjects, issuers, chains, validity dates and fingerprints without
+changing the keystore. Formats include JKS and PKCS12 when supported by the remote JDK.
+
+- `relative_path`: path relative to the profile's `certificate_dir`, or `base_dir`
+  if unset. Absolute paths and `..` components are rejected.
+- `store_password` (optional): verifies integrity. It is sent through SSH standard
+  input, not included in the remote command line or saved by this tool. Without it,
+  integrity is **not verified** and some store types may hide entries.
+- `alias` (optional): inspect one entry.
+- `keytool_path` (default `keytool`): remote executable name or absolute JDK keytool path.
+
+This inspects a supplied file, not the live TLS endpoint. It does not automatically
+discover the application's keystore or verify endpoint hostname/trust.
+
+### 7. Cross-host Java Trust and HTTP/HTTPS Diagnostics
+
+These tools reuse named SSH profiles and cached credentials without switching the
+active host:
+
+| MCP tool | Purpose |
+|---|---|
+| `inspect_java_tls_configuration(profile_name, pid=None)` | Discover JVM executables, truststore paths and JBoss bind addresses without returning passwords. |
+| `compare_java_truststores(first_profile, first_pid, second_profile, second_pid)` | Compare exact SHA256 file hashes and certificate fingerprint lists, including duplicates. |
+| `probe_java_http_connection(profile_name, pid, url, address_override=None, timeout_seconds=6)` | Issue a direct HTTP/HTTPS GET from a selected host using the selected JVM's JDK and truststore settings. |
+
+First connect both profiles using `connect_remote_host`. Discover the application
+PIDs, compare their truststores, then probe each direction separately. HTTP responses
+include their status code; DNS, connection and TLS failures are returned explicitly
+as `result.status="error"` with exception details. A 4xx/5xx response establishes
+connectivity, not application health.
+
+For example, after discovering the appropriate PID:
+
+```text
+probe_java_http_connection(
+    profile_name="source",
+    pid=12345,
+    url="https://target.example.net:8443/",
+    address_override="192.0.2.20"
+)
+```
+
+Omit `address_override` for the normal DNS test. An override preserves the URL's
+hostname for TLS/SNI and changes resolution only for that probe. It does not repair
+system DNS. HTTPS always validates certificate trust and hostname; plain HTTP
+does not use a truststore.
+
+**Requirements:** Linux SSH hosts, readable JVM process information/truststores,
+the selected JDK's `keytool` for comparison, JDK 17+ for probes and JDK 18+ for DNS
+overrides. Connect again if a profile's SSH password is no longer cached.
+
+**Safety and scope:** Truststore passwords are read from JVM command-line properties
+when present, sent through SSH standard input, and never returned, stored in temporary
+files, or included in probe process arguments. Keytool integrity warnings are
+preserved. The probe creates a private temporary directory and removes its source
+and optional hosts file afterwards. It makes one direct GET, bypasses proxies,
+does not follow redirects, sends no client certificate and reads no response body.
+It runs a fresh JVM: application-defined SSL contexts, runtime property changes,
+provider overrides, mutual TLS and application proxy settings are outside its scope.
+
+See the [Java connectivity skill](.github/skills/java-connectivity/SKILL.md) for the
+full diagnostic workflow. It uses Copilot's repository skill location. Restart the
+MCP server / reconnect Copilot to load the tools.
+
+### 8. Windows Remote Administration (PowerShell Remoting)
+
+Windows servers are managed with the same workflow as Linux hosts, using a username and
+password over **PowerShell Remoting (WinRM)**. No SSH server is needed on the Windows host.
+
+| Area | MCP tools |
+|---|---|
+| Connection | `connect_windows_host`, `list_windows_hosts`, `switch_windows_host`, `verify_windows_connection`, `disconnect_windows_host` |
+| Command execution | `windows_run_powershell`, `windows_run_command` |
+| Files (confined to the profile's `base_dir`) | `windows_list_directory`, `windows_read_file`, `windows_upload_file`, `windows_download_file`, `windows_create_directory` |
+| Diagnostics | `windows_system_information`, `windows_uptime`, `windows_cpu_usage`, `windows_memory`, `windows_disk_usage`, `windows_processes`, `windows_top_memory_processes`, `windows_java_processes`, `windows_listening_ports`, `windows_network_interfaces`, `windows_service_status` |
+
+**Connecting.** Use `MACHINE\user` or `DOMAIN\user` as the username. Port 5985 (HTTP) uses
+NTLM with mandatory message encryption; `use_https=true` uses port 5986 with full certificate
+validation (`ca_bundle_path` accepts a private CA's PEM file). Certificate validation is
+never disabled and Basic authentication is not supported. The password stays in process
+memory only; profiles without passwords are saved in `data/windows_hosts.json`. Each tool
+accepts an optional `profile_name` and otherwise uses the active Windows host.
+
+**Preparing the Windows host** (as an Administrator, once):
+
+```powershell
+Enable-PSRemoting -Force
+Add-LocalGroupMember -SID 'S-1-5-32-580' -Member 'MACHINE\user'   # Remote Management Users, if not an Administrator
+```
+
+Restrict the firewall rule to your management network. Remote Desktop (3389) is a separate
+service and does not by itself enable WinRM.
+
+**Files.** `base_dir` (default `C:\`) confines file tools: absolute paths, drive letters,
+`..`, alternate data streams, reserved device names and directory junctions/symlinks are
+rejected. Reads are limited to 1 MB; uploads and downloads to 100 MB, are verified with
+SHA256, and never overwrite existing files. Uploads come from `uploads/` and downloads go to
+`downloads/`.
+
+**Commands.** `windows_run_powershell` and `windows_run_command` run arbitrary code with the
+connected account's privileges and are not confined to `base_dir`; review commands before
+approving them. Output is truncated at 60,000 characters and timeouts range from 1 to 600
+seconds.
+
+**Non-administrator accounts.** Accounts in Remote Management Users cannot use WMI/CIM.
+Diagnostics then use registry, .NET and `netstat` data and say so; uptime becomes approximate
+and Java command lines are unavailable. After a command timeout, child processes may survive
+unless the account may use WMI.
+
+**Requirement:** `pypsrp` (`pip install pypsrp`). It is imported only when a Windows tool is
+used, so the server still starts without it.
+
+See the [Windows remote administration skill](.github/skills/windows-remote-administration/SKILL.md)
+for the full workflow and troubleshooting (HTTP 401, access denied, TLS errors).
+
 ---
 
 ## Architecture
@@ -264,6 +382,7 @@ If your repository does not yet contain `requirements.txt`, create it with the d
 ```text
 mcp
 paramiko
+pypsrp
 python-dotenv
 ```
 

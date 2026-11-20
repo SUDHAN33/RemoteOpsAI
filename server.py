@@ -38,6 +38,8 @@ from managers import linux_manager as linux
 from managers import java_manager as java
 from managers import database_manager as db
 from managers import certificate_manager as cert
+from managers import java_tls_manager as java_tls
+from managers import windows_manager as windows
 from managers import docker_manager as docker
 
 # Initialize MCP server
@@ -547,6 +549,65 @@ def inspect_remote_certificate(relative_path: str) -> str:
 
 
 @mcp.tool()
+def inspect_remote_keystore(
+    relative_path: str,
+    store_password: str | None = None,
+    alias: str | None = None,
+    keytool_path: str = "keytool",
+) -> str:
+    """Read Java keystore subjects, issuers, chains, dates and fingerprints on the active SSH host.
+
+    Path is relative to certificate_dir, or base_dir if unset. Uses keytool -list
+    without changing the keystore. An optional store password verifies integrity;
+    without it, integrity is not verified and some store types may hide entries.
+    keytool_path may specify an absolute remote JDK keytool executable.
+    This inspects a file, not the live TLS endpoint or its hostname/trust.
+    """
+    return cert.inspect_remote_keystore(relative_path, store_password, alias, keytool_path)
+
+
+@mcp.tool()
+def inspect_java_tls_configuration(profile_name: str, pid: int | None = None) -> dict:
+    """Discover Java executables and truststore paths on a cached SSH profile.
+
+    Omit pid to list Java processes. Passwords are never returned.
+    Does not switch the active host. Reconnect the profile if its password is not cached.
+    """
+    return java_tls.inspect_java_tls_configuration(profile_name, pid)
+
+
+@mcp.tool()
+def compare_java_truststores(
+    first_profile: str, first_pid: int, second_profile: str, second_pid: int,
+) -> dict:
+    """Compare two running JVMs' truststore file hashes and certificate fingerprints.
+
+    Uses cached SSH profiles without switching the active host. Reads truststore
+    passwords from JVM command-line properties when present, never returning them.
+    Reports missing integrity verification and keytool warnings explicitly.
+    """
+    return java_tls.compare_java_truststores(first_profile, first_pid, second_profile, second_pid)
+
+
+@mcp.tool()
+def probe_java_http_connection(
+    profile_name: str, pid: int, url: str, address_override: str | None = None,
+    timeout_seconds: int = 6,
+) -> dict:
+    """Test HTTP/HTTPS from a named SSH host using a selected JVM's JDK and truststore.
+
+    Requires JDK 17+; a DNS override requires JDK 18+. Makes a direct GET without
+    redirects, proxies, or client certificates. HTTPS validates trust and hostname.
+    address_override is an optional IP used only by the temporary probe; it does not
+    change system DNS. Temporary remote source/hosts files are removed afterwards.
+    Run separately from each profile to verify both directions.
+    """
+    return java_tls.probe_java_http_connection(
+        profile_name, pid, url, address_override, timeout_seconds,
+    )
+
+
+@mcp.tool()
 def list_remote_certificate_files(
     relative_directory: str = "."
 ) -> str:
@@ -812,6 +873,182 @@ def deploy_docker_compose(project_dir: str, compose_content: str = "", compose_f
     after validation (old file kept as .bak.<timestamp>); then pulls images and runs up -d --remove-orphans.
     Invalid configurations are never deployed."""
     return docker.deploy_compose(project_dir, compose_content, compose_file, pull, target)
+
+
+# ==========================
+# WINDOWS REMOTE TOOLS (PowerShell Remoting / WinRM)
+# ==========================
+
+def _windows_call(operation, *args, **kwargs) -> str:
+    """Return failures as readable text, as the MCP client hides raised error details."""
+    try:
+        return operation(*args, **kwargs)
+    except Exception as error:
+        return f"Windows operation failed: {error}"
+
+
+@mcp.tool()
+def connect_windows_host(
+    name: str, hostname: str, username: str, password: str, port: int = 0,
+    use_https: bool = False, base_dir: str = "C:\\", authentication: str = "ntlm",
+    ca_bundle_path: str = "",
+) -> str:
+    """Connect to a Windows server over PowerShell Remoting (WinRM) with a username and password.
+
+    Use MACHINE\\user or DOMAIN\\user. port 0 selects 5985 (HTTP, NTLM message encryption) or 5986
+    (HTTPS, certificate validated; ca_bundle_path may name a local PEM CA file). base_dir is the
+    absolute Windows directory that file tools are confined to. The password stays in memory only.
+    The connection becomes the active Windows host. Do not retry rejected credentials repeatedly.
+    """
+    return _windows_call(
+        windows.connect_windows_host, name, hostname, username, password, port,
+        use_https, base_dir, authentication, ca_bundle_path,
+    )
+
+
+@mcp.tool()
+def list_windows_hosts() -> str:
+    """List Windows host profiles; the active one is marked with an asterisk."""
+    return _windows_call(windows.list_windows_hosts)
+
+
+@mcp.tool()
+def switch_windows_host(name: str) -> str:
+    """Switch the active Windows host profile."""
+    return _windows_call(windows.switch_windows_host, name)
+
+
+@mcp.tool()
+def verify_windows_connection(profile_name: str = "") -> str:
+    """Verify PowerShell Remoting to a Windows profile (active profile when blank)."""
+    return _windows_call(windows.verify_windows_connection, profile_name)
+
+
+@mcp.tool()
+def disconnect_windows_host(name: str) -> str:
+    """Clear the in-memory password for a Windows profile."""
+    return _windows_call(windows.disconnect_windows_host, name)
+
+
+@mcp.tool()
+def windows_run_powershell(
+    script: str, working_directory: str = ".", timeout_seconds: int = 60, profile_name: str = "",
+) -> str:
+    """Run a PowerShell script on a Windows host with the connected account's privileges.
+
+    Output and error records are merged and truncated to 60,000 characters. The working directory
+    is relative to the profile's base directory. The script is stopped after timeout_seconds
+    (1-600), but native child processes it started may continue. Review scripts before running.
+    """
+    return _windows_call(windows.run_powershell, script, working_directory, timeout_seconds, profile_name)
+
+
+@mcp.tool()
+def windows_run_command(
+    command: str, working_directory: str = ".", timeout_seconds: int = 60, profile_name: str = "",
+) -> str:
+    """Run a cmd.exe command line on a Windows host and return its exit code, stdout and stderr.
+
+    Runs with the connected account's privileges and no interactive input. After timeout_seconds
+    (1-600) the process is terminated; child processes survive unless the account may use WMI. Review commands before running.
+    """
+    return _windows_call(windows.run_command, command, working_directory, timeout_seconds, profile_name)
+
+
+@mcp.tool()
+def windows_list_directory(relative_path: str = ".", profile_name: str = "") -> str:
+    """List files and directories inside the Windows profile's base directory."""
+    return _windows_call(windows.list_directory, relative_path, profile_name)
+
+
+@mcp.tool()
+def windows_read_file(relative_path: str, profile_name: str = "") -> str:
+    """Read a text file (up to 1 MB) inside the Windows profile's base directory."""
+    return _windows_call(windows.read_file, relative_path, profile_name)
+
+
+@mcp.tool()
+def windows_upload_file(filename: str, remote_relative_path: str, profile_name: str = "") -> str:
+    """Upload a file from the local uploads folder (max 100 MB). Existing remote files are never overwritten."""
+    return _windows_call(windows.upload_file, filename, remote_relative_path, profile_name)
+
+
+@mcp.tool()
+def windows_download_file(relative_path: str, profile_name: str = "") -> str:
+    """Download a file (max 100 MB) into the local downloads folder. Existing local files are never overwritten."""
+    return _windows_call(windows.download_file, relative_path, profile_name)
+
+
+@mcp.tool()
+def windows_create_directory(relative_path: str, profile_name: str = "") -> str:
+    """Create a directory under the Windows profile's base directory (parent must exist)."""
+    return _windows_call(windows.create_directory, relative_path, profile_name)
+
+
+@mcp.tool()
+def windows_system_information(profile_name: str = "") -> str:
+    """Get Windows OS, hardware, uptime and connected-user information."""
+    return _windows_call(windows.system_information, profile_name)
+
+
+@mcp.tool()
+def windows_uptime(profile_name: str = "") -> str:
+    """Get the Windows last boot time and uptime."""
+    return _windows_call(windows.uptime, profile_name)
+
+
+@mcp.tool()
+def windows_cpu_usage(profile_name: str = "") -> str:
+    """Get Windows processor details and current CPU load."""
+    return _windows_call(windows.cpu_usage, profile_name)
+
+
+@mcp.tool()
+def windows_memory(profile_name: str = "") -> str:
+    """Get Windows physical memory and commit usage."""
+    return _windows_call(windows.memory, profile_name)
+
+
+@mcp.tool()
+def windows_disk_usage(profile_name: str = "") -> str:
+    """Get Windows fixed-disk size and free space."""
+    return _windows_call(windows.disk_usage, profile_name)
+
+
+@mcp.tool()
+def windows_processes(profile_name: str = "") -> str:
+    """List the top Windows processes by CPU time."""
+    return _windows_call(windows.processes, profile_name)
+
+
+@mcp.tool()
+def windows_top_memory_processes(profile_name: str = "") -> str:
+    """List the Windows processes using the most memory."""
+    return _windows_call(windows.top_memory_processes, profile_name)
+
+
+@mcp.tool()
+def windows_java_processes(profile_name: str = "") -> str:
+    """List Java processes on a Windows host; command-line secrets are redacted on a best-effort basis."""
+    return _windows_call(windows.java_processes, profile_name)
+
+
+@mcp.tool()
+def windows_listening_ports(profile_name: str = "") -> str:
+    """List listening TCP ports and UDP endpoints on a Windows host with owning processes."""
+    return _windows_call(windows.listening_ports, profile_name)
+
+
+@mcp.tool()
+def windows_network_interfaces(profile_name: str = "") -> str:
+    """Get Windows network adapter status and IP addresses."""
+    return _windows_call(windows.network_interfaces, profile_name)
+
+
+@mcp.tool()
+def windows_service_status(service_name: str, profile_name: str = "") -> str:
+    """Get the status, start mode and account of a Windows service by its service name."""
+    return _windows_call(windows.service_status, service_name, profile_name)
 
 
 if __name__ == "__main__":
