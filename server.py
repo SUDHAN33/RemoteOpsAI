@@ -396,6 +396,19 @@ def linux_java_processes() -> str:
 
 
 @mcp.tool()
+def linux_run_command(
+    command: str, working_directory: str = "", timeout_seconds: int = 60, login_shell: bool = True,
+) -> str:
+    """Run any shell command or script (e.g. StatusCHP) on the active Linux host and return its exit code, stdout and stderr.
+
+    Runs in bash with the connected account's privileges and no interactive input. With login_shell
+    the user's profile is loaded so PATH matches the terminal. The command is stopped waiting after
+    timeout_seconds (1-600). Review commands before running.
+    """
+    return linux.run_command(command, working_directory, timeout_seconds, login_shell)
+
+
+@mcp.tool()
 def linux_service_status(service_name: str) -> str:
     """Get the status of a systemd service."""
     return linux.get_service_status(service_name)
