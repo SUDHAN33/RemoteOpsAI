@@ -398,14 +398,20 @@ def linux_java_processes() -> str:
 @mcp.tool()
 def linux_run_command(
     command: str, working_directory: str = "", timeout_seconds: int = 60, login_shell: bool = True,
+    profile_file: str = "",
 ) -> str:
-    """Run any shell command or script (e.g. StatusCHP) on the active Linux host and return its exit code, stdout and stderr.
+    """Run a shell command or script on the active Linux host and return its exit code and output.
 
-    Runs in bash with the connected account's privileges and no interactive input. With login_shell
-    the user's profile is loaded so PATH matches the terminal. The command is stopped waiting after
-    timeout_seconds (1-600). Review commands before running.
+    Runs through the SSH account's configured shell without a PTY or interactive input. By
+    default it sources the applicable shell login profile before the command. If profile_file
+    is provided, that filename is loaded from the remote user's home directory
+    first. After profiles load, /usr/bin:/bin is prepended for this command if bash or sh is
+    not found on PATH. Set login_shell=False to skip shell login profiles. Each invocation uses
+    a fresh command shell. Timeouts are 1-600 seconds. Review commands before running.
     """
-    return linux.run_command(command, working_directory, timeout_seconds, login_shell)
+    return linux.run_command(
+        command, working_directory, timeout_seconds, login_shell, profile_file=profile_file
+    )
 
 
 @mcp.tool()

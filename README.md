@@ -28,6 +28,14 @@ Instead of manually switching between SSH terminals, SFTP clients, and log files
 - Retrieve server uptime.
 - Execute remote Linux commands through the available command-execution tools.
 
+`linux_run_command` runs through the SSH account's configured shell. It can source an explicit
+project profile file from the remote user's home directory, then the applicable shell login
+profile. If `bash` or `sh` is missing from PATH after profiles load, `/usr/bin:/bin` is
+prepended for that command. It does not allocate a PTY or accept interactive input. See the
+[project environment skill](.github/skills/project-environment/SKILL.md) for its workflow.
+Restart the RemoteOpsAI MCP server and reconnect Copilot to load the updated command behavior
+and skill.
+
 ### 3. Remote File Management (SFTP)
 - List remote directories.
 - Read remote files.
